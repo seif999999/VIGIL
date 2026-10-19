@@ -80,6 +80,12 @@ webots/diagnostics/
 **/embeddings/
 **/enrollment/
 **/gallery/
+# Local FaceNet enrollments / capture photos (never commit biometrics)
+liveness/data/**
+!liveness/data/
+!liveness/data/.gitkeep
+!liveness/data/README.md
+
 **/test_images/**
 !**/test_images/README.txt
 **/test video.mp4

@@ -130,8 +130,10 @@ def run(
     port: int = DEFAULT_PORT,
     enable_face_detection: bool = False,
     enable_liveness: bool = False,
+    enable_friend_auth: bool = False,
     provisional_real_min: float = 0.85,
     provisional_spoof_min: float = 0.85,
+    enrollment_db: Path | None = None,
 ) -> int:
     secret_key = _load_hmac_key()
     session_id = generate_session_id()
@@ -139,12 +141,21 @@ def run(
     session_prefix = _session_hex_prefix(session_id)
     stats = VerifierStats()
     started_at = time.perf_counter()
-    if enable_liveness and not enable_face_detection:
+    if (enable_liveness or enable_friend_auth) and not enable_face_detection:
         enable_face_detection = True
-        print("[INFO] --enable-liveness requires face detection; SCRFD enabled.")
+        print("[INFO] Perception flags require face detection; SCRFD enabled.")
+    if enable_friend_auth and enable_liveness:
+        print(
+            "[WARN] Both --enable-friend-auth and --enable-liveness set; "
+            "friend-auth (FasNet+FaceNet) takes precedence for display/decision. "
+            "Legacy mn3 remains available via --enable-liveness alone.",
+            file=sys.stderr,
+        )
+        enable_liveness = False
 
     detector_calls = 0
     liveness_calls = 0
+    friend_auth_calls = 0
     face_detector = None
     draw_detections = None
     liveness_detector = None
@@ -153,7 +164,9 @@ def run(
     resolve_demo_outcome = None
     provisional_policy = None
     ProvisionalDemoOutcome = None
-    if enable_face_detection or enable_liveness:
+    friend_pipeline = None
+    auth_decision_counts: dict[str, int] = {}
+    if enable_face_detection or enable_liveness or enable_friend_auth:
         if str(LIVENESS_DIR) not in sys.path:
             sys.path.insert(0, str(LIVENESS_DIR))
     if enable_face_detection:
@@ -163,6 +176,40 @@ def run(
         draw_detections = face_mod.draw_detections
         face_detector = face_mod.FaceDetector()
         print("[INFO] SCRFD face detection enabled (post-HMAC only).")
+    if enable_friend_auth:
+        if face_detector is None:
+            print(
+                "[ERROR] --enable-friend-auth requires face detection (SCRFD).",
+                file=sys.stderr,
+            )
+            return 1
+        from auth_pipeline import FriendAuthPipeline  # noqa: WPS433
+        from facenet_identity import (  # noqa: WPS433
+            DEFAULT_ENROLLMENT_PATH,
+            MATCH_THRESHOLD,
+            MATCH_THRESHOLD_STATUS,
+        )
+
+        enroll_path = enrollment_db or DEFAULT_ENROLLMENT_PATH
+        friend_pipeline = FriendAuthPipeline(
+            face_detector, enrollment_path=enroll_path
+        )
+        init_ms = friend_pipeline.warm_up()
+        n_ids = len(friend_pipeline.enrollments.get("identities", {}))
+        print(
+            "[INFO] Friend-auth enabled (post-HMAC): SCRFD → FasNet → FaceNet. "
+            f"threshold={MATCH_THRESHOLD} [{MATCH_THRESHOLD_STATUS}] "
+            f"enrollments={n_ids} @ {enroll_path}"
+        )
+        print(
+            f"[INFO] Model warm-up fasnet_ms={init_ms.get('fasnet_init_ms')} "
+            f"facenet_ms={init_ms.get('facenet_init_ms')}"
+        )
+        if n_ids == 0:
+            print(
+                "[WARN] No enrollments — ACCEPT impossible until enroll_identity.py runs.",
+                file=sys.stderr,
+            )
     if enable_liveness:
         if face_detector is None:
             print(
@@ -198,6 +245,9 @@ def run(
     verify_latencies_ms: list[float] = []
     scrfd_latencies_ms: list[float] = []
     liveness_latencies_ms: list[float] = []
+    fasnet_latencies_ms: list[float] = []
+    facenet_latencies_ms: list[float] = []
+    friend_total_ms: list[float] = []
     combined_perception_ms: list[float] = []
     demo_outcome_counts: dict[str, int] = {}
     if ProvisionalDemoOutcome is not None:
@@ -288,43 +338,91 @@ def run(
             perception_ms = 0.0
             if face_detector is not None and draw_detections is not None:
                 t_perc0 = time.perf_counter_ns()
-                detector_calls += 1
-                det_result = face_detector.detect(verified_bgr)
-                scrfd_latencies_ms.append(det_result.inference_ms)
-                display_bgr = draw_detections(verified_bgr, det_result)
-                live_result = None
-                if (
-                    liveness_detector is not None
-                    and run_liveness_if_face_ok is not None
-                ):
-                    live_result = run_liveness_if_face_ok(
-                        verified_bgr, det_result, liveness_detector
+                if friend_pipeline is not None:
+                    friend_auth_calls += 1
+                    detector_calls += 1
+                    auth = friend_pipeline.process_verified_frame(verified_bgr)
+                    scrfd_latencies_ms.append(auth.scrfd_ms)
+                    if auth.fasnet is not None:
+                        fasnet_latencies_ms.append(auth.fasnet_ms)
+                    if auth.identity is not None and auth.identity.error is None:
+                        facenet_latencies_ms.append(auth.facenet_ms)
+                    friend_total_ms.append(auth.total_ms)
+                    perception_ms = auth.total_ms
+                    combined_perception_ms.append(perception_ms)
+                    key = f"{auth.outcome.decision.value}:{auth.outcome.reason}"
+                    auth_decision_counts[key] = auth_decision_counts.get(key, 0) + 1
+                    display_bgr = draw_detections(verified_bgr, auth.detection)
+                    color = (
+                        (0, 255, 0)
+                        if auth.outcome.decision.value == "ACCEPT"
+                        else (0, 0, 255)
                     )
-                    if live_result is not None:
-                        liveness_calls += 1
-                        liveness_latencies_ms.append(live_result.inference_ms)
-                perception_ms = (time.perf_counter_ns() - t_perc0) / 1_000_000
-                combined_perception_ms.append(perception_ms)
-                if (
-                    draw_demo_liveness_readout is not None
-                    and provisional_policy is not None
-                    and resolve_demo_outcome is not None
-                ):
-                    demo = resolve_demo_outcome(
-                        det_result.decision.value,
-                        live_result,
-                        provisional_policy,
+                    dist = (
+                        auth.identity.best_distance
+                        if auth.identity is not None
+                        else None
                     )
-                    demo_outcome_counts[demo.value] = (
-                        demo_outcome_counts.get(demo.value, 0) + 1
-                    )
-                    display_bgr = draw_demo_liveness_readout(
-                        display_bgr,
-                        face_decision_value=det_result.decision.value,
-                        liveness=live_result,
-                        policy=provisional_policy,
-                        total_ms=perception_ms,
-                    )
+                    lines = [
+                        f"AUTH: {auth.outcome.decision.value} ({auth.outcome.reason})",
+                        f"FasNet: {auth.fasnet.predicted_class.value if auth.fasnet else 'n/a'} "
+                        f"score={auth.fasnet.antispoof_score if auth.fasnet else None}",
+                        f"ID: {auth.outcome.identity} dist={dist}",
+                        f"ms SCRFD={auth.scrfd_ms:.0f} Fas={auth.fasnet_ms:.0f} "
+                        f"FN={auth.facenet_ms:.0f} tot={auth.total_ms:.0f}",
+                    ]
+                    y = display_bgr.shape[0] - len(lines) * 22 - 8
+                    y = max(160, y)
+                    for line in lines:
+                        cv2.putText(
+                            display_bgr,
+                            line,
+                            (10, y),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            color,
+                            1,
+                            cv2.LINE_AA,
+                        )
+                        y += 22
+                else:
+                    detector_calls += 1
+                    det_result = face_detector.detect(verified_bgr)
+                    scrfd_latencies_ms.append(det_result.inference_ms)
+                    display_bgr = draw_detections(verified_bgr, det_result)
+                    live_result = None
+                    if (
+                        liveness_detector is not None
+                        and run_liveness_if_face_ok is not None
+                    ):
+                        live_result = run_liveness_if_face_ok(
+                            verified_bgr, det_result, liveness_detector
+                        )
+                        if live_result is not None:
+                            liveness_calls += 1
+                            liveness_latencies_ms.append(live_result.inference_ms)
+                    perception_ms = (time.perf_counter_ns() - t_perc0) / 1_000_000
+                    combined_perception_ms.append(perception_ms)
+                    if (
+                        draw_demo_liveness_readout is not None
+                        and provisional_policy is not None
+                        and resolve_demo_outcome is not None
+                    ):
+                        demo = resolve_demo_outcome(
+                            det_result.decision.value,
+                            live_result,
+                            provisional_policy,
+                        )
+                        demo_outcome_counts[demo.value] = (
+                            demo_outcome_counts.get(demo.value, 0) + 1
+                        )
+                        display_bgr = draw_demo_liveness_readout(
+                            display_bgr,
+                            face_decision_value=det_result.decision.value,
+                            liveness=live_result,
+                            policy=provisional_policy,
+                            total_ms=perception_ms,
+                        )
             hmac_y = 110 if face_detector is not None else 28
             _draw_overlay(
                 display_bgr,
@@ -383,6 +481,8 @@ def run(
             print(f"Detector calls: {detector_calls}")
         if enable_liveness:
             print(f"Liveness calls (FACE_OK only): {liveness_calls}")
+        if enable_friend_auth:
+            print(f"Friend-auth calls (post-HMAC): {friend_auth_calls}")
         if verify_latencies_ms:
             print(
                 f"Median HMAC verify latency: "
@@ -398,6 +498,21 @@ def run(
                 f"Median liveness latency: "
                 f"{statistics.median(liveness_latencies_ms):.3f} ms"
             )
+        if fasnet_latencies_ms:
+            print(
+                f"Median FasNet latency: "
+                f"{statistics.median(fasnet_latencies_ms):.3f} ms"
+            )
+        if facenet_latencies_ms:
+            print(
+                f"Median FaceNet latency: "
+                f"{statistics.median(facenet_latencies_ms):.3f} ms"
+            )
+        if friend_total_ms:
+            print(
+                f"Median friend-auth total: "
+                f"{statistics.median(friend_total_ms):.3f} ms"
+            )
         if combined_perception_ms:
             print(
                 f"Median SCRFD+liveness wall time: "
@@ -407,6 +522,10 @@ def run(
             print("Provisional demo outcome counts (uncalibrated policy):")
             for key in sorted(demo_outcome_counts):
                 print(f"  {key}: {demo_outcome_counts[key]}")
+        if auth_decision_counts:
+            print("Friend-auth decision counts:")
+            for key in sorted(auth_decision_counts):
+                print(f"  {key}: {auth_decision_counts[key]}")
         print(f"Result: {result_label}")
 
     return 0
@@ -429,22 +548,40 @@ def main() -> None:
     parser.add_argument(
         "--enable-visual-baseline",
         action="store_true",
-        help="Full pipeline: SCRFD + liveness + provisional demo policy (post-HMAC)",
+        help="Full pipeline: SCRFD + mn3 liveness + provisional demo policy (post-HMAC)",
+    )
+    parser.add_argument(
+        "--enable-friend-auth",
+        action="store_true",
+        help=(
+            "Experimental: SCRFD + DeepFace FasNet + FaceNet identity "
+            "(post-HMAC only; ACCEPT = REAL and recognized)"
+        ),
+    )
+    parser.add_argument(
+        "--enrollment-db",
+        type=Path,
+        default=None,
+        help="FaceNet enrollment JSON (default: liveness/data/enrollments.json)",
     )
     parser.add_argument(
         "--provisional-real-min",
         type=float,
         default=0.85,
-        help="Provisional min real score for confident REAL (uncalibrated)",
+        help="Provisional min real score for confident REAL (uncalibrated, mn3 only)",
     )
     parser.add_argument(
         "--provisional-spoof-min",
         type=float,
         default=0.85,
-        help="Provisional min spoof score for confident SPOOF (uncalibrated)",
+        help="Provisional min spoof score for confident SPOOF (uncalibrated, mn3 only)",
     )
     args = parser.parse_args()
-    enable_face = args.enable_face_detection or args.enable_visual_baseline
+    enable_face = (
+        args.enable_face_detection
+        or args.enable_visual_baseline
+        or args.enable_friend_auth
+    )
     enable_live = args.enable_liveness or args.enable_visual_baseline
     sys.exit(
         run(
@@ -452,8 +589,10 @@ def main() -> None:
             port=args.port,
             enable_face_detection=enable_face,
             enable_liveness=enable_live,
+            enable_friend_auth=args.enable_friend_auth,
             provisional_real_min=args.provisional_real_min,
             provisional_spoof_min=args.provisional_spoof_min,
+            enrollment_db=args.enrollment_db,
         )
     )
 

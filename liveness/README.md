@@ -1,6 +1,16 @@
-# VIGIL liveness baseline — anti-spoof-mn3
+# VIGIL liveness
 
-## Purpose
+## Experimental friend-auth (FasNet + FaceNet)
+
+On branch `friend-pipeline`, optional acceptance path after HMAC + SCRFD:
+
+1. **FasNet** (`fasnet_liveness.py`) — DeepFace 0.0.102 ensemble (MiniFASNetV2@2.7 + MiniFASNetV1SE@4.0) on the **full frame** with SCRFD bbox as `(x,y,w,h)`.
+2. **FaceNet-128** (`facenet_identity.py`) — local JSON enrollments; euclidean threshold **9.0** (`UNVALIDATED_FRIEND_THRESHOLD`).
+3. **ACCEPT** only if REAL **and** recognized (`auth_decision.py` / `auth_pipeline.py`).
+
+See root `README.md` for enroll / verifier commands. Legacy **anti-spoof-mn3** below remains for comparison (`--enable-liveness` / `--enable-visual-baseline`).
+
+## Purpose (mn3 baseline)
 
 Face **presentation attack detection** (liveness evidence) on a **single SCRFD face crop**, after HMAC verification and face-count policy.
 
