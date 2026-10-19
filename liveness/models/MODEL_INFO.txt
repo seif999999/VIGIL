@@ -1,0 +1,33 @@
+VIGIL liveness — anti-spoof-mn3 (OpenVINO Open Model Zoo, frozen baseline)
+
+Runtime file:
+  liveness/models/anti-spoof-mn3.onnx
+
+Source (official):
+  https://storage.openvinotoolkit.org/repositories/open_model_zoo/public/2022.1/anti-spoof-mn3/anti-spoof-mn3.onnx
+  Model card:
+  https://github.com/openvinotoolkit/open_model_zoo/tree/master/models/public/anti-spoof-mn3
+
+Format: ONNX (Original Model from OMZ; not OpenVINO IR in this baseline)
+
+Size: 12_270_179 bytes
+
+SHA384 (OMZ model.yml checksum):
+  6de4534964b723397b3e8c995cadcf43bc007cc2f9930b95ae25f76adccece5d1d4d058d0b15117b9e4a9f758424f92a
+
+SHA256 (local record):
+  c4c99af04603b62d7e44f6f4daeb33e0daeccc696008c0b1d62f6f5cebbb3262
+
+Input: actual_input_1, shape 1x3x128x128 NCHW float32
+  Original ONNX (this file): RGB, mean [151.2405, 119.5950, 107.8395],
+  scale [63.0105, 56.4570, 55.0035] — applied in liveness/detector.py
+
+  Converted OpenVINO IR uses BGR with mean/scale embedded at conversion time.
+  We run the official ONNX with Original Model preprocessing per OMZ README.
+
+Output: output1, shape 1x2 — index 0 REAL, index 1 SPOOF (probabilities)
+
+Training dataset: CelebA-Spoof
+
+License: MIT (see OMZ model card / upstream light-weight-face-anti-spoofing)
+

@@ -1,0 +1,523 @@
+"""Research benchmark: FLIP-MCL (ICCV 2023) vs anti-spoof-mn3. Production unchanged."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import statistics
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import cv2
+
+from crop import crop_face_bgr
+from decision_policy import ProvisionalDecisionPolicy, classify_provisional_scores
+from detector import LivenessDetector, MODEL_NAME as MN3_NAME
+from diagnose_offline_crop_expansion import classify_pose_bucket, resolve_run_path
+from face_bridge import load_face_detector_module
+from research.flip_fas import MODEL_NAME as FLIP_NAME, FlipResearch
+
+BASE_DIR = Path(__file__).resolve().parent
+HEAD_RUNS = [
+    BASE_DIR / "diagnostic_head_motion" / "20261015T102037Z",
+    BASE_DIR / "diagnostic_head_motion" / "20261015T131532Z",
+]
+PHONE_VIDEO = BASE_DIR.parent / "face_detection" / "test video.mp4"
+PRINT_VIDEO = Path(r"C:\Users\smnam\Downloads\test video.mp4")
+
+
+def _pct(vals: list[float], p: float) -> float | None:
+    if not vals:
+        return None
+    s = sorted(vals)
+    k = (len(s) - 1) * p / 100.0
+    f = int(k)
+    c = min(f + 1, len(s) - 1)
+    if f == c:
+        return float(s[f])
+    return float(s[f] + (s[c] - s[f]) * (k - f))
+
+
+def _summ_mn3(rows: list[dict]) -> dict:
+    reals = [r["mn3"]["real_score"] for r in rows]
+    spoof_n = sum(1 for r in rows if r["mn3"]["predicted_class"] == "SPOOF")
+    lat = [r["mn3"]["inference_ms"] for r in rows]
+    prov: dict[str, int] = {}
+    for r in rows:
+        k = r["mn3"].get("provisional") or "n/a"
+        prov[k] = prov.get(k, 0) + 1
+    return {
+        "n": len(rows),
+        "mean_real": statistics.mean(reals) if reals else None,
+        "median_real": statistics.median(reals) if reals else None,
+        "p10_real": _pct(reals, 10),
+        "p90_real": _pct(reals, 90),
+        "argmax_spoof_count": spoof_n,
+        "argmax_spoof_pct": 100.0 * spoof_n / len(rows) if rows else 0.0,
+        "argmax_real_pct": 100.0 * (len(rows) - spoof_n) / len(rows) if rows else 0.0,
+        "provisional_counts": prov,
+        "median_inference_ms": statistics.median(lat) if lat else None,
+        "mean_inference_ms": statistics.mean(lat) if lat else None,
+        "note": "VIGIL provisional policy applies ONLY to mn3 scores",
+    }
+
+
+def _summ_flip(rows: list[dict]) -> dict:
+    lives = [r["flip"]["live_prob"] for r in rows]
+    spoof_n = sum(1 for r in rows if r["flip"]["predicted_class"] == "SPOOF")
+    lat = [r["flip"]["inference_ms"] for r in rows]
+    return {
+        "n": len(rows),
+        "mean_live_prob": statistics.mean(lives) if lives else None,
+        "median_live_prob": statistics.median(lives) if lives else None,
+        "p10_live_prob": _pct(lives, 10),
+        "p90_live_prob": _pct(lives, 90),
+        "argmax_spoof_count": spoof_n,
+        "argmax_spoof_pct": 100.0 * spoof_n / len(rows) if rows else 0.0,
+        "argmax_real_pct": 100.0 * (len(rows) - spoof_n) / len(rows) if rows else 0.0,
+        "median_inference_ms": statistics.median(lat) if lat else None,
+        "mean_inference_ms": statistics.mean(lat) if lat else None,
+        "decision_rule": (
+            "uncalibrated FLIP-MCL argmax: class1=REAL class0=SPOOF; "
+            "live_prob=softmax(I-T logits)[:,1]. NOT a VIGIL policy decision."
+        ),
+    }
+
+
+def eval_camo_run(
+    run_dir: Path,
+    mn3: LivenessDetector,
+    flip: FlipResearch,
+    face_detector,
+    face_mod,
+    policy: ProvisionalDecisionPolicy,
+) -> dict:
+    report_path = run_dir / "report.json"
+    if not report_path.is_file():
+        return {"status": "missing", "path": str(run_dir)}
+    data = json.loads(report_path.read_text(encoding="utf-8"))
+    samples_b = data["phase_B_head_motion"]["samples"]
+    b_max = max(s["index"] for s in samples_b) if samples_b else 0
+    scored: list[dict] = []
+    missing: list[str] = []
+
+    for phase_key, phase_id in (("phase_A_stationary", "A"), ("phase_B_head_motion", "B")):
+        for s in data[phase_key]["samples"]:
+            if s.get("real_score") is None or not s.get("bbox"):
+                continue
+            frame_rel = s.get("frame_path")
+            if not frame_rel:
+                continue
+            frame_path = resolve_run_path(run_dir, frame_rel)
+            if not frame_path.is_file():
+                missing.append(frame_rel)
+                continue
+            frame = cv2.imread(str(frame_path))
+            if frame is None:
+                missing.append(frame_rel)
+                continue
+            bbox = tuple(s["bbox"])
+            crop_mn3 = crop_face_bgr(frame, bbox, expand_factor=1.0)
+            if crop_mn3 is None:
+                continue
+            mn3_r = mn3.predict(crop_mn3)
+            flip_r = flip.predict_frame(frame, bbox)
+            if flip_r is None:
+                continue
+            yaw = float(s["landmark_yaw_proxy"])
+            scored.append(
+                {
+                    "phase": phase_id,
+                    "index": int(s["index"]),
+                    "pose_bucket": classify_pose_bucket(
+                        phase_id, int(s["index"]), yaw, b_max
+                    ),
+                    "yaw_proxy": yaw,
+                    "recorded_live_mn3_real": float(s["real_score"]),
+                    "mn3": {
+                        "real_score": mn3_r.real_score,
+                        "spoof_score": mn3_r.spoof_score,
+                        "predicted_class": mn3_r.predicted_class.value,
+                        "provisional": classify_provisional_scores(
+                            mn3_r.real_score, mn3_r.spoof_score, policy
+                        ).value,
+                        "inference_ms": mn3_r.inference_ms,
+                    },
+                    "flip": {
+                        "live_prob": flip_r.live_prob,
+                        "spoof_prob": flip_r.spoof_prob,
+                        "predicted_class": flip_r.predicted_class.value,
+                        "argmax_cls": flip_r.argmax_cls,
+                        "inference_ms": flip_r.inference_ms,
+                        "crop_mode": flip_r.crop_mode,
+                        "device": flip_r.device,
+                    },
+                }
+            )
+
+    buckets = sorted({r["pose_bucket"] for r in scored})
+    by_bucket = {
+        b: {
+            "anti-spoof-mn3": _summ_mn3([r for r in scored if r["pose_bucket"] == b]),
+            "FLIP": _summ_flip([r for r in scored if r["pose_bucket"] == b]),
+        }
+        for b in buckets
+    }
+    return {
+        "status": "ok",
+        "path": str(run_dir),
+        "device": data.get("device_resolved"),
+        "samples_scored": len(scored),
+        "missing_frames": missing,
+        "overall": {
+            "anti-spoof-mn3": _summ_mn3(scored),
+            "FLIP": _summ_flip(scored),
+        },
+        "by_pose_bucket": by_bucket,
+        "per_sample": scored,
+    }
+
+
+def eval_video(
+    video_path: Path,
+    label: str,
+    mn3: LivenessDetector,
+    flip: FlipResearch,
+    face_detector,
+    face_mod,
+    policy: ProvisionalDecisionPolicy,
+    *,
+    max_face_ok: int,
+    frame_stride: int,
+) -> dict:
+    if not video_path.is_file():
+        return {"status": "missing", "path": str(video_path), "label": label}
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        return {"status": "unreadable", "path": str(video_path), "label": label}
+    rows: list[dict] = []
+    idx = 0
+    while len(rows) < max_face_ok:
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            break
+        idx += 1
+        if idx % frame_stride != 0:
+            continue
+        det = face_detector.detect(frame)
+        if det.decision != face_mod.FaceCountDecision.FACE_OK or not det.faces:
+            continue
+        face = det.faces[0]
+        bbox = tuple(face.bbox)
+        crop = crop_face_bgr(frame, bbox)
+        if crop is None:
+            continue
+        mn3_r = mn3.predict(crop)
+        flip_r = flip.predict_frame(frame, bbox)
+        if flip_r is None:
+            continue
+        rows.append(
+            {
+                "frame_index": idx,
+                "mn3": {
+                    "real_score": mn3_r.real_score,
+                    "spoof_score": mn3_r.spoof_score,
+                    "predicted_class": mn3_r.predicted_class.value,
+                    "provisional": classify_provisional_scores(
+                        mn3_r.real_score, mn3_r.spoof_score, policy
+                    ).value,
+                    "inference_ms": mn3_r.inference_ms,
+                },
+                "flip": {
+                    "live_prob": flip_r.live_prob,
+                    "spoof_prob": flip_r.spoof_prob,
+                    "predicted_class": flip_r.predicted_class.value,
+                    "argmax_cls": flip_r.argmax_cls,
+                    "inference_ms": flip_r.inference_ms,
+                    "crop_mode": flip_r.crop_mode,
+                    "device": flip_r.device,
+                },
+            }
+        )
+    cap.release()
+    return {
+        "status": "ok",
+        "label": label,
+        "path": str(video_path),
+        "face_ok_frames": len(rows),
+        "anti-spoof-mn3": _summ_mn3(rows),
+        "FLIP": _summ_flip(rows),
+    }
+
+
+def build_table(payload: dict) -> str:
+    lines = [
+        "--- FLIP-MCL MSU 0-shot (ICCV 2023) vs anti-spoof-mn3 (research only) ---",
+        "Production baseline unchanged. Argmax compared; native scores uncalibrated.",
+        f"FLIP checkpoint: {payload['flip_checkpoint']}",
+        f"FLIP SHA256: {payload['flip_meta'].get('sha256')}",
+        f"FLIP device: {payload['flip_meta'].get('device')} "
+        f"peak_cuda_MB={payload.get('flip_peak_cuda_mb')}",
+        "FLIP score: forward_eval softmax[:,1]=live_prob; argmax 1=REAL 0=SPOOF",
+        "FLIP crop: square bbox * 1.3; 224; ImageNet mean/std (official FASDataset eval)",
+        "mn3 crop: production crop_face_bgr expand=1.0; provisional policy on mn3 only",
+        "",
+    ]
+    for run in payload.get("camo_runs", []):
+        if run.get("status") != "ok":
+            lines.append(f"Camo run missing: {run.get('path')}")
+            continue
+        o = run["overall"]
+        lines += [
+            f"Camo run {Path(run['path']).name} ({run.get('device')}, n={run['samples_scored']}):",
+            f"  mn3: mean_REAL={o['anti-spoof-mn3']['mean_real']:.4f} "
+            f"SPOOF%={o['anti-spoof-mn3']['argmax_spoof_pct']:.1f} "
+            f"provisional={o['anti-spoof-mn3']['provisional_counts']} "
+            f"median_ms={o['anti-spoof-mn3']['median_inference_ms']:.1f}",
+            f"  FLIP: mean_live={o['FLIP']['mean_live_prob']:.4f} "
+            f"SPOOF%={o['FLIP']['argmax_spoof_pct']:.1f} "
+            f"median_ms={o['FLIP']['median_inference_ms']:.1f}",
+            "  By pose (mean | SPOOF%):",
+        ]
+        for bucket, stats in run["by_pose_bucket"].items():
+            lines.append(
+                f"    {bucket}: mn3 {stats['anti-spoof-mn3']['mean_real']:.3f}/"
+                f"{stats['anti-spoof-mn3']['argmax_spoof_pct']:.0f}% | "
+                f"FLIP {stats['FLIP']['mean_live_prob']:.3f}/"
+                f"{stats['FLIP']['argmax_spoof_pct']:.0f}%"
+            )
+        lines.append("")
+
+    for key, title in (
+        ("phone_genuine_video", "Phone genuine video"),
+        ("print_attack_video", "PRINT-like attack video"),
+    ):
+        v = payload.get(key) or {}
+        if v.get("status") != "ok":
+            lines.append(f"{title}: {v.get('status')} ({v.get('path')})")
+            continue
+        lines.append(f"{title} ({v['face_ok_frames']} FACE_OK):")
+        lines.append(
+            f"  mn3: mean_REAL={v['anti-spoof-mn3']['mean_real']:.4f} "
+            f"SPOOF%={v['anti-spoof-mn3']['argmax_spoof_pct']:.1f} "
+            f"median_ms={v['anti-spoof-mn3']['median_inference_ms']:.1f}"
+        )
+        lines.append(
+            f"  FLIP: mean_live={v['FLIP']['mean_live_prob']:.4f} "
+            f"SPOOF%={v['FLIP']['argmax_spoof_pct']:.1f} "
+            f"median_ms={v['FLIP']['median_inference_ms']:.1f}"
+        )
+        lines.append("")
+
+    lines += [
+        f"SCREEN attack: {payload['screen_attack']['status']}",
+        payload["screen_attack"]["note"],
+        "",
+        payload["security_note"],
+        "",
+        "Answers:",
+    ]
+    for q, a in payload["answers"].items():
+        lines.append(f"- {q}: {a}")
+    return "\n".join(lines)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Benchmark FLIP vs mn3")
+    parser.add_argument("--phone-video", type=Path, default=PHONE_VIDEO)
+    parser.add_argument("--print-video", type=Path, default=PRINT_VIDEO)
+    parser.add_argument("--max-face-ok", type=int, default=120)
+    parser.add_argument("--frame-stride", type=int, default=6)
+    parser.add_argument("--skip-videos", action="store_true")
+    parser.add_argument("--device", type=str, default=None)
+    args = parser.parse_args()
+
+    print("[INFO] Loading models...", flush=True)
+    t0 = time.perf_counter()
+    mn3 = LivenessDetector()
+    flip = FlipResearch(device=args.device)
+    if flip.device.type == "cuda":
+        import torch
+
+        torch.cuda.reset_peak_memory_stats()
+    face_mod = load_face_detector_module()
+    face_detector = face_mod.FaceDetector()
+    policy = ProvisionalDecisionPolicy()
+    print(
+        f"[INFO] Ready in {time.perf_counter() - t0:.1f}s (FLIP on {flip.device})",
+        flush=True,
+    )
+
+    camo_runs = []
+    for run_dir in HEAD_RUNS:
+        print(f"[INFO] Camo run {run_dir.name}...", flush=True)
+        camo_runs.append(
+            eval_camo_run(run_dir.resolve(), mn3, flip, face_detector, face_mod, policy)
+        )
+
+    if args.skip_videos:
+        phone = {"status": "skipped"}
+        print_v = {"status": "skipped"}
+    else:
+        print("[INFO] Phone genuine video...", flush=True)
+        phone = eval_video(
+            args.phone_video.resolve(),
+            "genuine_phone_file",
+            mn3,
+            flip,
+            face_detector,
+            face_mod,
+            policy,
+            max_face_ok=args.max_face_ok,
+            frame_stride=args.frame_stride,
+        )
+        print("[INFO] PRINT-like video...", flush=True)
+        print_v = eval_video(
+            args.print_video.resolve(),
+            "print_like_attack",
+            mn3,
+            flip,
+            face_detector,
+            face_mod,
+            policy,
+            max_face_ok=args.max_face_ok,
+            frame_stride=args.frame_stride,
+        )
+
+    ok_camo = [r for r in camo_runs if r.get("status") == "ok"]
+    camo_spoof_mn3 = [r["overall"]["anti-spoof-mn3"]["argmax_spoof_pct"] for r in ok_camo]
+    camo_spoof_flip = [r["overall"]["FLIP"]["argmax_spoof_pct"] for r in ok_camo]
+    camo_live_flip = [r["overall"]["FLIP"]["mean_live_prob"] for r in ok_camo]
+    lat_flip = [r["overall"]["FLIP"]["median_inference_ms"] for r in ok_camo]
+    lat_mn3 = [r["overall"]["anti-spoof-mn3"]["median_inference_ms"] for r in ok_camo]
+
+    phone_flip_spoof = (phone.get("FLIP") or {}).get("argmax_spoof_pct")
+    phone_mn3_spoof = (phone.get("anti-spoof-mn3") or {}).get("argmax_spoof_pct")
+    print_flip_spoof = (print_v.get("FLIP") or {}).get("argmax_spoof_pct")
+    print_mn3_spoof = (print_v.get("anti-spoof-mn3") or {}).get("argmax_spoof_pct")
+
+    improves_both_camo = (
+        len(camo_spoof_flip) == 2
+        and all(f < m for f, m in zip(camo_spoof_flip, camo_spoof_mn3))
+    )
+    preserves_print = print_flip_spoof is not None and print_flip_spoof >= 95.0
+    phone_ok = phone_flip_spoof is not None and phone_flip_spoof <= 10.0
+
+    answers = {
+        "improves_genuine_both_camo": (
+            f"Camo SPOOF% mn3={camo_spoof_mn3} FLIP={camo_spoof_flip}; "
+            f"FLIP live means={camo_live_flip}. "
+            f"Verdict_improves_both_camo={improves_both_camo}."
+        ),
+        "preserves_print_rejection": (
+            f"PRINT SPOOF% mn3={print_mn3_spoof} FLIP={print_flip_spoof} "
+            f"(status={print_v.get('status')}). "
+            f"Verdict_preserves_print={preserves_print}."
+        ),
+        "phone_genuine_reliable": (
+            f"Phone SPOOF% mn3={phone_mn3_spoof} FLIP={phone_flip_spoof}. "
+            f"Verdict_phone_ok={phone_ok}."
+        ),
+        "head_pose_robustness": (
+            "See by_pose_bucket strong_side_profile / moderate_turn in Camo JSON."
+        ),
+        "latency_memory": (
+            f"Camo median ms mn3={lat_mn3}, FLIP={lat_flip}; "
+            f"device={flip.meta.get('device')}; "
+            f"peak_cuda_MB={flip.peak_cuda_memory_mb()}."
+        ),
+        "justifies_compute_cost": (
+            "Yes only if both Camo genuine improve AND PRINT preserved AND "
+            "phone OK AND latency/VRAM acceptable; otherwise reject."
+        ),
+        "next_step": (
+            "If promising: recommend live physical test before any production change. "
+            "Do not replace mn3 from this offline run alone. SCREEN still untested."
+        ),
+    }
+
+    payload = {
+        "timestamp_utc": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
+        "research_only": True,
+        "production_model_unchanged": MN3_NAME,
+        "candidate_model": FLIP_NAME,
+        "checkpoint_choice_rationale": (
+            "Official MCIO MSU leave-out 0-shot FLIP-MCL checkpoint from model_zoo.md "
+            "(SharePoint link resolves to msu_flip_mcl.pth.tar). Same LOO protocol "
+            "family as prior IADG OCI2M; not selected by VIGIL Camo/PRINT scores."
+        ),
+        "flip_checkpoint": str(flip.checkpoint_path),
+        "flip_meta": flip.meta,
+        "flip_peak_cuda_mb": flip.peak_cuda_memory_mb(),
+        "camo_runs": camo_runs,
+        "phone_genuine_video": phone,
+        "print_attack_video": print_v,
+        "screen_attack": {
+            "status": "no_saved_screen_recording",
+            "note": "SCREEN marked untested; no replay recording available.",
+        },
+        "security_note": (
+            "FLIP live_prob and mn3 REAL are uncalibrated across models. "
+            "VIGIL provisional / Challenge-1 policy applies ONLY to mn3. "
+            "FLIP argmax is research-only."
+        ),
+        "answers": answers,
+        "verdicts": {
+            "improves_genuine_both_camo": improves_both_camo,
+            "preserves_print": preserves_print,
+            "phone_ok": phone_ok,
+            "screen_tested": False,
+        },
+    }
+
+    out_dir = (
+        BASE_DIR / "diagnostic_head_motion" / "20261015T102037Z" / "flip_vs_mn3"
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path = out_dir / "comparison.json"
+    json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    table = build_table(payload)
+    (out_dir / "comparison_table.txt").write_text(table, encoding="utf-8")
+
+    report = "\n".join(
+        [
+            "# FLIP-MCL vs anti-spoof-mn3 (research)",
+            "",
+            "## Checkpoint",
+            f"- Source: `{flip.meta['source']}`",
+            f"- Local: `{flip.checkpoint_path}`",
+            f"- SHA256: `{flip.meta['sha256']}`",
+            f"- Method: `{flip.meta['method']}` protocol `{flip.meta['protocol']}`",
+            f"- License: {flip.meta['license']}",
+            f"- Device: `{flip.meta['device']}` peak CUDA MB: `{payload['flip_peak_cuda_mb']}`",
+            "",
+            "## Scoring",
+            "| Model | Score | Argmax | Policy |",
+            "|---|---|---|---|",
+            "| anti-spoof-mn3 | REAL/SPOOF probs | production | VIGIL provisional |",
+            "| FLIP-MCL | softmax(I–T)[:,1] | 1=REAL 0=SPOOF | none (research) |",
+            "",
+            "## Results",
+            "```",
+            table,
+            "```",
+            "",
+            "## Limitations",
+            "- SCREEN attack: untested.",
+            "- No fine-tuning on VIGIL media.",
+            "- Upstream repo has no LICENSE file.",
+            "- FLIP uses 1.3× square crop + ImageNet norm; mn3 uses native crop.",
+            "",
+        ]
+    )
+    (out_dir / "REPORT.md").write_text(report, encoding="utf-8")
+    print(table)
+    print(f"\nJSON: {json_path}")
+    missing_any = any(r.get("missing_frames") for r in ok_camo)
+    sys.exit(0 if not missing_any else 1)
+
+
+if __name__ == "__main__":
+    main()

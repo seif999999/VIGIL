@@ -1,0 +1,23 @@
+VIGIL face detector — SCRFD-2.5G_KPS (frozen baseline)
+
+Detection ONNX file used at runtime:
+  buffalo_m/buffalo_m/det_2.5g.onnx
+
+InsightFace model-zoo release does not publish a standalone scrfd_2p5gkps.onnx
+asset. The buffalo_m pack detection artifact det_2.5g.onnx is SCRFD-2.5G with
+five facial keypoints (9 ONNX outputs, use_kps=True), matching SCRFD_2.5G_KPS.
+
+Source (official):
+  https://github.com/deepinsight/insightface/releases/tag/model-zoo
+  Package: buffalo_m.zip
+  Release asset digest (zip): sha256:d98264bd8f2dc75cbc2ddce2a14e636e02bb857b3051c234b737bf3b614edca9
+
+Download (InsightFace Python helper):
+  insightface.utils.storage.download("models", "buffalo_m", root=<face_detection>)
+
+License note:
+  InsightFace code is MIT; official pretrained models are for non-commercial
+  research. This thesis use is research/non-commercial.
+
+SHA256 (det_2.5g.onnx):
+  041f73f47371333d1d17a6fee6c8ab4e6aecabefe398ff32cca4e2d5eaee0af9

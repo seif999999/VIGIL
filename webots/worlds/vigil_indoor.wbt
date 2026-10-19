@@ -1,0 +1,120 @@
+#VRML_SIM R2023b utf8
+
+WorldInfo {
+  title "VIGIL indoor baseline"
+  basicTimeStep 32
+}
+Viewpoint {
+  orientation 0.12 0.92 0.35 0.45
+  position 0.15 0.55 1.15
+  follow "VIGIL robot"
+}
+# Manual check: same pose as robot camera (see webots/SCENE_GEOMETRY.md)
+Viewpoint {
+  orientation -0.08 0.98 0.18 0.35
+  position 0 0.44 0.76
+  description "poster_alignment_check"
+}
+Background {
+  skyColor [
+    0.45 0.65 0.9
+  ]
+}
+DirectionalLight {
+  direction 0.2 -0.5 -1
+  intensity 1.6
+  castShadows FALSE
+}
+Solid {
+  translation 0 0 0
+  name "floor"
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.55 0.55 0.58
+        roughness 0.9
+      }
+      geometry Box {
+        size 6 0.02 6
+      }
+    }
+  ]
+}
+Solid {
+  translation 0 0.75 -2.85
+  name "back_wall"
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.85 0.85 0.88
+      }
+      geometry Box {
+        size 6 1.5 0.08
+      }
+    }
+  ]
+}
+Robot {
+  translation 0 0.06 0.74
+  rotation 0 1 0 0
+  name "VIGIL robot"
+  controller "vigil_camera"
+  supervisor FALSE
+  synchronization TRUE
+  children [
+    Transform {
+      translation 0 0.38 0
+      rotation 0 0 0 0
+      children [
+        Camera {
+          name "camera"
+          width 640
+          height 480
+          fieldOfView 0.95
+        }
+      ]
+    }
+    Display {
+      width 320
+      height 240
+    }
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.15 0.45 0.75
+        roughness 0.4
+        metalness 0.1
+      }
+      geometry Box {
+        size 0.18 0.12 0.08
+      }
+    }
+  ]
+  boundingObject Box {
+    size 0.18 0.12 0.08
+  }
+  physics Physics {
+    density -1
+    mass 0.5
+  }
+}
+Solid {
+  translation 0 0.44 0.36
+  rotation 0 1 0 3.14159
+  name "face_poster_rendered_texture"
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [
+            "../textures/face_target.jpg"
+          ]
+        }
+        roughness 0.85
+        metalness 0
+      }
+      geometry Plane {
+        size 0.62 0.82
+      }
+    }
+  ]
+}
