@@ -9,17 +9,35 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 import os
 import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
 MODEL_NAME = "Facenet"
+
+
+def _represent_kwargs(represent_fn: Callable[..., Any], **kwargs: Any) -> dict[str, Any]:
+    """
+    Filter kwargs to those accepted by the installed DeepFace.represent().
+
+    deepface==0.0.102 rejects unknown kwargs (e.g. silent=True → TypeError).
+    Optional convenience flags that do not change embeddings are dropped when
+    unsupported; required call args are always passed through.
+    """
+    try:
+        params = inspect.signature(represent_fn).parameters
+    except (TypeError, ValueError):
+        return dict(kwargs)
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return dict(kwargs)
+    return {k: v for k, v in kwargs.items() if k in params}
 EMBEDDING_DIM = 128
 MATCH_THRESHOLD = 9.0
 MATCH_THRESHOLD_STATUS = "UNVALIDATED_FRIEND_THRESHOLD"
@@ -279,11 +297,29 @@ def save_enrollments(data: dict[str, Any], path: Path | None = None) -> Path:
 
 
 class FaceNetIdentity:
-    """Lazy FaceNet via DeepFace.represent; models cached by DeepFace."""
+    """FaceNet-128 identity: shared DeepFace preprocess + TF or same-weight ONNX forward.
 
-    def __init__(self) -> None:
+    Backend via constructor or VIGIL_FACENET_BACKEND (tf|onnx|auto).
+    Default prefers ONNX when the exported same-weight graph and onnxruntime exist;
+    TensorFlow remains the fallback. Enrollment matching and threshold 9.0 are unchanged.
+    """
+
+    def __init__(self, *, backend: str | None = None) -> None:
+        from facenet_backends import (
+            OnnxFaceNetForward,
+            TfFaceNetForward,
+            resolve_facenet_backend,
+        )
+
+        self._backend = resolve_facenet_backend(backend)
         self._warmed = False
         self._init_ms: float | None = None
+        self._tf_fwd = TfFaceNetForward()
+        self._onnx_fwd = OnnxFaceNetForward()
+
+    @property
+    def backend(self) -> str:
+        return self._backend
 
     @property
     def init_ms(self) -> float | None:
@@ -293,10 +329,14 @@ class FaceNetIdentity:
         if self._warmed:
             return
         t0 = time.perf_counter()
-        from deepface import DeepFace  # noqa: WPS433
-
-        DeepFace.build_model(MODEL_NAME)
-        self._init_ms = (time.perf_counter() - t0) * 1000.0
+        if self._backend == "onnx":
+            self._onnx_fwd.warm_up()
+            self._init_ms = self._onnx_fwd.init_ms
+        else:
+            self._tf_fwd.warm_up()
+            self._init_ms = self._tf_fwd.init_ms
+        if self._init_ms is None:
+            self._init_ms = (time.perf_counter() - t0) * 1000.0
         self._warmed = True
 
     def embed_bgr(
@@ -306,24 +346,17 @@ class FaceNetIdentity:
         enforce_detection: bool = False,
     ) -> tuple[list[float] | None, float, str | None]:
         """Return (embedding, inference_ms, error). Fail closed on exceptions."""
-        t0 = time.perf_counter()
-        try:
-            from deepface import DeepFace  # noqa: WPS433
+        from facenet_backends import embed_bgr_with_backend
 
-            self.warm_up()
-            result = DeepFace.represent(
-                img_path=image_bgr,
-                model_name=MODEL_NAME,
-                enforce_detection=enforce_detection,
-            )
-            emb = list(result[0]["embedding"])
-            if len(emb) != EMBEDDING_DIM:
-                return None, (time.perf_counter() - t0) * 1000.0, (
-                    f"unexpected_embedding_dim={len(emb)}"
-                )
-            return emb, (time.perf_counter() - t0) * 1000.0, None
-        except Exception as exc:  # noqa: BLE001
-            return None, (time.perf_counter() - t0) * 1000.0, f"{type(exc).__name__}: {exc}"
+        self.warm_up()
+        emb, timing, err = embed_bgr_with_backend(
+            image_bgr,
+            backend=self._backend,  # type: ignore[arg-type]
+            enforce_detection=enforce_detection,
+            tf_fwd=self._tf_fwd,
+            onnx_fwd=self._onnx_fwd,
+        )
+        return emb, timing.total_ms, err
 
     def match_crop(
         self,
@@ -331,6 +364,7 @@ class FaceNetIdentity:
         enrollments: dict[str, Any],
         *,
         threshold: float = MATCH_THRESHOLD,
+        enrollment_index: dict[str, Any] | None = None,
     ) -> IdentityMatch:
         emb, ms, err = self.embed_bgr(face_bgr, enforce_detection=False)
         if emb is None:
@@ -346,7 +380,12 @@ class FaceNetIdentity:
                 inference_ms=ms,
                 error=err or "embedding_failed",
             )
-        match = match_identity(emb, enrollments, threshold=threshold)
+        match = match_identity(
+            emb,
+            enrollments,
+            threshold=threshold,
+            enrollment_index=enrollment_index,
+        )
         return IdentityMatch(
             recognized=match.recognized,
             identity=match.identity,
@@ -470,24 +509,36 @@ class FaceNetIdentity:
         )
 
     def _embed_path(self, img_path: Path) -> tuple[list[float] | None, float, str | None]:
-        t0 = time.perf_counter()
-        try:
-            from deepface import DeepFace  # noqa: WPS433
+        """Load BGR then embed via the active backend (same preprocess as live match)."""
+        import cv2
 
-            self.warm_up()
-            result = DeepFace.represent(
-                img_path=str(img_path),
-                model_name=MODEL_NAME,
-                enforce_detection=True,
-            )
-            emb = list(result[0]["embedding"])
-            if len(emb) != EMBEDDING_DIM:
-                return None, (time.perf_counter() - t0) * 1000.0, (
-                    f"unexpected_embedding_dim={len(emb)}"
-                )
-            return emb, (time.perf_counter() - t0) * 1000.0, None
-        except Exception as exc:  # noqa: BLE001
-            return None, (time.perf_counter() - t0) * 1000.0, f"{type(exc).__name__}: {exc}"
+        img = cv2.imread(str(img_path))
+        if img is None:
+            return None, 0.0, f"imread_failed:{img_path}"
+        return self.embed_bgr(img, enforce_detection=True)
+
+
+def build_enrollment_index(enrollments: dict[str, Any]) -> dict[str, Any]:
+    """
+    Precompute float64 embedding matrices for fast Euclidean matching.
+
+    Same distances as per-vector euclidean_distance(); only the evaluation
+    form changes (vectorized). Safe to cache across frames until enrollments reload.
+    """
+    identities = enrollments.get("identities", {}) or {}
+    matrices: dict[str, np.ndarray] = {}
+    display_names: dict[str, str] = {}
+    for ident_id, rec in identities.items():
+        embeds = rec.get("embeddings") or []
+        if not embeds:
+            continue
+        mat = np.asarray(embeds, dtype=np.float64)
+        if mat.ndim != 2 or mat.shape[1] != EMBEDDING_DIM:
+            # Fall back to empty — caller will skip; malformed data fail-closed upstream.
+            continue
+        matrices[ident_id] = mat
+        display_names[ident_id] = display_name_of(rec, ident_id)
+    return {"matrices": matrices, "display_names": display_names}
 
 
 def match_identity(
@@ -495,28 +546,49 @@ def match_identity(
     enrollments: dict[str, Any],
     *,
     threshold: float = MATCH_THRESHOLD,
+    enrollment_index: dict[str, Any] | None = None,
 ) -> IdentityMatch:
     best_id: str | None = None
     best_dist = float("inf")
     all_distances: dict[str, float] = {}
     identities = enrollments.get("identities", {})
+    query = np.asarray(embedding, dtype=np.float64)
 
-    for ident_id, rec in identities.items():
-        embeds = rec.get("embeddings") or []
-        if not embeds:
-            continue
-        dists = [euclidean_distance(embedding, emb) for emb in embeds]
-        d = float(min(dists))
-        all_distances[ident_id] = d
-        if d < best_dist:
-            best_dist = d
-            best_id = ident_id
+    index = enrollment_index
+    if index is None:
+        index = build_enrollment_index(enrollments)
+    matrices: dict[str, np.ndarray] = index.get("matrices") or {}
+    display_names: dict[str, str] = index.get("display_names") or {}
+
+    if matrices:
+        for ident_id, mat in matrices.items():
+            # ||X - q|| for each row — identical to min(euclidean_distance) over embeds.
+            dists = np.linalg.norm(mat - query, axis=1)
+            d = float(dists.min())
+            all_distances[ident_id] = d
+            if d < best_dist:
+                best_dist = d
+                best_id = ident_id
+    else:
+        # Compatibility path if index empty / malformed.
+        for ident_id, rec in identities.items():
+            embeds = rec.get("embeddings") or []
+            if not embeds:
+                continue
+            dists = [euclidean_distance(embedding, emb) for emb in embeds]
+            d = float(min(dists))
+            all_distances[ident_id] = d
+            if d < best_dist:
+                best_dist = d
+                best_id = ident_id
 
     recognized = best_id is not None and best_dist < threshold
     disp = None
     disp_cand = None
     if best_id is not None:
-        disp_cand = display_name_of(identities.get(best_id) or {}, best_id)
+        disp_cand = display_names.get(best_id) or display_name_of(
+            identities.get(best_id) or {}, best_id
+        )
         if recognized:
             disp = disp_cand
     return IdentityMatch(

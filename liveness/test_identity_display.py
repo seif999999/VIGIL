@@ -21,7 +21,12 @@ from facenet_identity import (
     save_enrollments,
 )
 from fasnet_liveness import FasNetClass, FasNetResult
-from live_friend_auth import _fasnet_lines, _reason_label, draw_auth
+from live_friend_auth import (
+    _fasnet_lines,
+    _reason_label,
+    _status_title,
+    draw_auth,
+)
 
 
 def _emb(seed: float) -> list[float]:
@@ -157,9 +162,57 @@ class IdentityRenameTests(unittest.TestCase):
         self.assertIn("uncalibrated", joined)
         self.assertNotIn("REAL class_conf: 0.810", joined)
 
+    def test_challenge_required_reason_label(self) -> None:
+        self.assertIn(
+            "NOT IMPLEMENTED",
+            _reason_label("challenge_required_not_implemented"),
+        )
+
     def test_reason_labels(self) -> None:
         self.assertEqual(_reason_label("spoof"), "Spoof detected")
         self.assertEqual(_reason_label("no_face"), "No face detected")
+
+    def test_status_title_live_identified(self) -> None:
+        from auth_decision import AuthOutcome
+
+        outcome = AuthOutcome(
+            AuthDecision.ACCEPT,
+            "real_and_recognized",
+            1,
+            "REAL",
+            True,
+            "Seif",
+            fasnet_auth_state="REAL",
+        )
+        self.assertEqual(_status_title(outcome, None), "LIVE — SEIF")
+
+    def test_status_title_live_not_identified(self) -> None:
+        from auth_decision import AuthOutcome
+
+        outcome = AuthOutcome(
+            AuthDecision.DENY,
+            "unknown_identity",
+            1,
+            "REAL",
+            False,
+            "Seif",
+            fasnet_auth_state="REAL",
+        )
+        self.assertEqual(_status_title(outcome, None), "LIVE — NOT IDENTIFIED")
+
+    def test_status_title_spoof_unknown(self) -> None:
+        from auth_decision import AuthOutcome
+
+        outcome = AuthOutcome(
+            AuthDecision.DENY,
+            "spoof",
+            1,
+            "SPOOF",
+            False,
+            None,
+            fasnet_auth_state="SPOOF",
+        )
+        self.assertEqual(_status_title(outcome, None), "SPOOF — UNKNOWN")
 
     def test_draw_auth_smoke_no_crash(self) -> None:
         img = np.zeros((480, 640, 3), dtype=np.uint8)
@@ -209,6 +262,19 @@ class IdentityRenameTests(unittest.TestCase):
             camera_state="frames_ok",
             preview_fps=25.0,
             auth_hz=2.0,
+            debug=False,
+        )
+        draw_auth(
+            img.copy(),
+            result,
+            stale=False,
+            mode="continuous",
+            busy=False,
+            age_ms=120.0,
+            camera_state="frames_ok",
+            preview_fps=25.0,
+            auth_hz=2.0,
+            debug=True,
         )
         # Unknown person panel
         img2 = np.zeros((480, 640, 3), dtype=np.uint8)

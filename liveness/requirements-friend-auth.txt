@@ -1,8 +1,11 @@
-# Experimental friend-auth path (DeepFace FasNet + FaceNet)
-# Install into a dedicated venv, e.g.:
+# Friend-auth path (DeepFace FasNet + FaceNet) — operational venv
+#   cd liveness
 #   python -m venv .venv_auth
 #   .venv_auth\Scripts\pip install -r requirements-friend-auth.txt
-# Also need SCRFD/InsightFace + onnxruntime for face_detection (see face_detection README).
+#
+# Also need SCRFD weights under face_detection/models/ (see face_detection/models/MODEL_INFO.txt).
+# Default inference backends: FasNet ONNX + FaceNet ONNX (when export present).
+# TensorFlow remains installed for FaceNet ONNX export and TF fallback.
 
 deepface==0.0.102
 tensorflow>=2.16
@@ -14,3 +17,7 @@ mtcnn>=1.0.0
 retina-face>=0.0.17
 insightface>=0.7
 onnxruntime>=1.16
+
+# Required only to (re)export DeepFace FaceNet-128 → ONNX (same weights as TF):
+tf2onnx>=1.16
+onnx>=1.14

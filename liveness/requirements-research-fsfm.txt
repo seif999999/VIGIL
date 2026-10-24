@@ -1,0 +1,15 @@
+# Research-only FSFM / FLIP PyTorch stack (NOT used by live_friend_auth / HMAC auth).
+# Recreate after deleting .venv_fsfm:
+#   cd liveness
+#   python -m venv .venv_fsfm
+#   .venv_fsfm\Scripts\pip install -r requirements-research-fsfm.txt
+# Then run diagnose_fsfm_vs_mn3.py / diagnose_flip_vs_mn3.py with that interpreter.
+# Checkpoints remain under models/research/ (gitignored; back up before deleting).
+
+torch>=2.1
+torchvision>=0.16
+timm>=0.9
+opencv-python>=4.8
+numpy>=1.26
+Pillow>=10.0
+huggingface_hub>=0.20
