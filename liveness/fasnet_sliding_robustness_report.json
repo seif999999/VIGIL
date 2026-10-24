@@ -1,0 +1,482 @@
+{
+  "frozen": {
+    "window_s": 5.0,
+    "stride_s_sliding": 1.0,
+    "aggregation": "median_real",
+    "real_min": 0.95,
+    "spoof_min": 0.85,
+    "min_valid": 5,
+    "exclude_identity_failures_from_pad": false
+  },
+  "unit": "Mark-interval windows; sliding overlaps are correlated \u2014 not independent authentication trials. Session containment is primary for attacks.",
+  "per_session": {
+    "PRINT_20261020T222723Z": {
+      "session_id": "PRINT_20261020T222723Z",
+      "label": "PRINT",
+      "modes": {
+        "nonoverlap": {
+          "session_id": "PRINT_20261020T222723Z",
+          "label": "PRINT",
+          "role": "selection",
+          "mode": "nonoverlap",
+          "n_windows": 33,
+          "REAL": 0,
+          "SPOOF": 10,
+          "UNCERTAIN": 21,
+          "INVALID": 2,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 25.03030303030303,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        },
+        "sliding": {
+          "session_id": "PRINT_20261020T222723Z",
+          "label": "PRINT",
+          "role": "selection",
+          "mode": "sliding",
+          "n_windows": 164,
+          "REAL": 0,
+          "SPOOF": 55,
+          "UNCERTAIN": 98,
+          "INVALID": 11,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 25.121951219512194,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        }
+      }
+    },
+    "PRINT_20261021T114944Z": {
+      "session_id": "PRINT_20261021T114944Z",
+      "label": "PRINT",
+      "modes": {
+        "nonoverlap": {
+          "session_id": "PRINT_20261021T114944Z",
+          "label": "PRINT",
+          "role": "validation",
+          "mode": "nonoverlap",
+          "n_windows": 12,
+          "REAL": 0,
+          "SPOOF": 3,
+          "UNCERTAIN": 8,
+          "INVALID": 1,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 27.5,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        },
+        "sliding": {
+          "session_id": "PRINT_20261021T114944Z",
+          "label": "PRINT",
+          "role": "validation",
+          "mode": "sliding",
+          "n_windows": 56,
+          "REAL": 0,
+          "SPOOF": 13,
+          "UNCERTAIN": 41,
+          "INVALID": 2,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 28.857142857142858,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        }
+      }
+    },
+    "PRINT_20261021T154852Z": {
+      "session_id": "PRINT_20261021T154852Z",
+      "label": "PRINT",
+      "modes": {
+        "nonoverlap": {
+          "session_id": "PRINT_20261021T154852Z",
+          "label": "PRINT",
+          "role": "validation_provisional_print",
+          "mode": "nonoverlap",
+          "n_windows": 32,
+          "REAL": 0,
+          "SPOOF": 16,
+          "UNCERTAIN": 16,
+          "INVALID": 0,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 26.25,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        },
+        "sliding": {
+          "session_id": "PRINT_20261021T154852Z",
+          "label": "PRINT",
+          "role": "validation_provisional_print",
+          "mode": "sliding",
+          "n_windows": 157,
+          "REAL": 4,
+          "SPOOF": 81,
+          "UNCERTAIN": 71,
+          "INVALID": 1,
+          "ERROR": 0,
+          "REAL_pct": 2.5477707006369426,
+          "any_window_real": true,
+          "mean_valid_per_window": 26.656050955414013,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 4
+        }
+      }
+    },
+    "REAL_20261019T153012Z": {
+      "session_id": "REAL_20261019T153012Z",
+      "label": "REAL",
+      "modes": {
+        "nonoverlap": {
+          "session_id": "REAL_20261019T153012Z",
+          "label": "REAL",
+          "role": "selection",
+          "mode": "nonoverlap",
+          "n_windows": 8,
+          "REAL": 0,
+          "SPOOF": 0,
+          "UNCERTAIN": 0,
+          "INVALID": 8,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 3.0,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        },
+        "sliding": {
+          "session_id": "REAL_20261019T153012Z",
+          "label": "REAL",
+          "role": "selection",
+          "mode": "sliding",
+          "n_windows": 37,
+          "REAL": 0,
+          "SPOOF": 0,
+          "UNCERTAIN": 0,
+          "INVALID": 37,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 2.8378378378378377,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        }
+      }
+    },
+    "REAL_20261020T230111Z": {
+      "session_id": "REAL_20261020T230111Z",
+      "label": "REAL",
+      "modes": {
+        "nonoverlap": {
+          "session_id": "REAL_20261020T230111Z",
+          "label": "REAL",
+          "role": "validation",
+          "mode": "nonoverlap",
+          "n_windows": 16,
+          "REAL": 15,
+          "SPOOF": 0,
+          "UNCERTAIN": 1,
+          "INVALID": 0,
+          "ERROR": 0,
+          "REAL_pct": 93.75,
+          "any_window_real": true,
+          "mean_valid_per_window": 26.875,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 15
+        },
+        "sliding": {
+          "session_id": "REAL_20261020T230111Z",
+          "label": "REAL",
+          "role": "validation",
+          "mode": "sliding",
+          "n_windows": 79,
+          "REAL": 73,
+          "SPOOF": 0,
+          "UNCERTAIN": 5,
+          "INVALID": 1,
+          "ERROR": 0,
+          "REAL_pct": 92.40506329113924,
+          "any_window_real": true,
+          "mean_valid_per_window": 26.59493670886076,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 73
+        }
+      }
+    },
+    "REAL_20261021T154119Z": {
+      "session_id": "REAL_20261021T154119Z",
+      "label": "REAL",
+      "modes": {
+        "nonoverlap": {
+          "session_id": "REAL_20261021T154119Z",
+          "label": "REAL",
+          "role": "validation",
+          "mode": "nonoverlap",
+          "n_windows": 13,
+          "REAL": 10,
+          "SPOOF": 0,
+          "UNCERTAIN": 3,
+          "INVALID": 0,
+          "ERROR": 0,
+          "REAL_pct": 76.92307692307692,
+          "any_window_real": true,
+          "mean_valid_per_window": 20.53846153846154,
+          "real_windows_high_loss_ge_40pct": 1,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 10
+        },
+        "sliding": {
+          "session_id": "REAL_20261021T154119Z",
+          "label": "REAL",
+          "role": "validation",
+          "mode": "sliding",
+          "n_windows": 64,
+          "REAL": 44,
+          "SPOOF": 0,
+          "UNCERTAIN": 19,
+          "INVALID": 1,
+          "ERROR": 0,
+          "REAL_pct": 68.75,
+          "any_window_real": true,
+          "mean_valid_per_window": 20.234375,
+          "real_windows_high_loss_ge_40pct": 2,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 44
+        }
+      }
+    },
+    "SCREEN_20261021T115815Z": {
+      "session_id": "SCREEN_20261021T115815Z",
+      "label": "SCREEN",
+      "modes": {
+        "nonoverlap": {
+          "session_id": "SCREEN_20261021T115815Z",
+          "label": "SCREEN",
+          "role": "selection",
+          "mode": "nonoverlap",
+          "n_windows": 18,
+          "REAL": 0,
+          "SPOOF": 11,
+          "UNCERTAIN": 7,
+          "INVALID": 0,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 34.5,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        },
+        "sliding": {
+          "session_id": "SCREEN_20261021T115815Z",
+          "label": "SCREEN",
+          "role": "selection",
+          "mode": "sliding",
+          "n_windows": 90,
+          "REAL": 0,
+          "SPOOF": 48,
+          "UNCERTAIN": 39,
+          "INVALID": 3,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 34.266666666666666,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        }
+      }
+    },
+    "SCREEN_20261022T185746Z": {
+      "session_id": "SCREEN_20261022T185746Z",
+      "label": "SCREEN",
+      "modes": {
+        "nonoverlap": {
+          "session_id": "SCREEN_20261022T185746Z",
+          "label": "SCREEN",
+          "role": "holdout_screen2",
+          "mode": "nonoverlap",
+          "n_windows": 17,
+          "REAL": 0,
+          "SPOOF": 10,
+          "UNCERTAIN": 6,
+          "INVALID": 1,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 24.11764705882353,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        },
+        "sliding": {
+          "session_id": "SCREEN_20261022T185746Z",
+          "label": "SCREEN",
+          "role": "holdout_screen2",
+          "mode": "sliding",
+          "n_windows": 81,
+          "REAL": 0,
+          "SPOOF": 40,
+          "UNCERTAIN": 37,
+          "INVALID": 4,
+          "ERROR": 0,
+          "REAL_pct": 0.0,
+          "any_window_real": false,
+          "mean_valid_per_window": 25.123456790123456,
+          "real_windows_high_loss_ge_40pct": 0,
+          "real_windows_with_multiple_faces": 0,
+          "n_real_window_details": 0
+        }
+      }
+    }
+  },
+  "pooled_genuine_REAL_label": {
+    "nonoverlap": {
+      "counts": {
+        "REAL": 25,
+        "SPOOF": 0,
+        "UNCERTAIN": 4,
+        "INVALID": 8,
+        "ERROR": 0,
+        "n_windows": 37
+      },
+      "REAL_pct": 67.56756756756756,
+      "attack_sessions_with_any_real": []
+    },
+    "sliding": {
+      "counts": {
+        "REAL": 117,
+        "SPOOF": 0,
+        "UNCERTAIN": 24,
+        "INVALID": 39,
+        "ERROR": 0,
+        "n_windows": 180
+      },
+      "REAL_pct": 65.0,
+      "attack_sessions_with_any_real": []
+    },
+    "note": "Pooled REAL-label windows across sessions; temporally dependent."
+  },
+  "pooled_attack_PRINT_SCREEN": {
+    "nonoverlap": {
+      "counts": {
+        "REAL": 0,
+        "SPOOF": 50,
+        "UNCERTAIN": 58,
+        "INVALID": 4,
+        "ERROR": 0,
+        "n_windows": 112
+      },
+      "REAL_pct": 0.0,
+      "attack_sessions_with_any_real": []
+    },
+    "sliding": {
+      "counts": {
+        "REAL": 4,
+        "SPOOF": 237,
+        "UNCERTAIN": 286,
+        "INVALID": 21,
+        "ERROR": 0,
+        "n_windows": 548
+      },
+      "REAL_pct": 0.7299270072992701,
+      "attack_sessions_with_any_real": [
+        "PRINT_20261021T154852Z"
+      ]
+    }
+  },
+  "offset_sensitivity_REAL_sessions": [
+    {
+      "session_id": "REAL_20261019T153012Z",
+      "nonoverlap_REAL": "0/8",
+      "sliding_REAL": "0/37",
+      "containment_nonoverlap": false,
+      "containment_sliding": false,
+      "sliding_real_rate": 0.0,
+      "nonoverlap_real_rate": 0.0
+    },
+    {
+      "session_id": "REAL_20261020T230111Z",
+      "nonoverlap_REAL": "15/16",
+      "sliding_REAL": "73/79",
+      "containment_nonoverlap": true,
+      "containment_sliding": true,
+      "sliding_real_rate": 92.40506329113924,
+      "nonoverlap_real_rate": 93.75
+    },
+    {
+      "session_id": "REAL_20261021T154119Z",
+      "nonoverlap_REAL": "10/13",
+      "sliding_REAL": "44/64",
+      "containment_nonoverlap": true,
+      "containment_sliding": true,
+      "sliding_real_rate": 68.75,
+      "nonoverlap_real_rate": 76.92307692307692
+    }
+  ],
+  "offset_sensitivity_attack_sessions": [
+    {
+      "session_id": "PRINT_20261020T222723Z",
+      "role": "selection",
+      "nonoverlap": "REAL=0/33 atk=False",
+      "sliding": "REAL=0/164 atk=False",
+      "sliding_introduces_real": false
+    },
+    {
+      "session_id": "PRINT_20261021T114944Z",
+      "role": "validation",
+      "nonoverlap": "REAL=0/12 atk=False",
+      "sliding": "REAL=0/56 atk=False",
+      "sliding_introduces_real": false
+    },
+    {
+      "session_id": "PRINT_20261021T154852Z",
+      "role": "validation_provisional_print",
+      "nonoverlap": "REAL=0/32 atk=False",
+      "sliding": "REAL=4/157 atk=True",
+      "sliding_introduces_real": true
+    },
+    {
+      "session_id": "SCREEN_20261021T115815Z",
+      "role": "selection",
+      "nonoverlap": "REAL=0/18 atk=False",
+      "sliding": "REAL=0/90 atk=False",
+      "sliding_introduces_real": false
+    },
+    {
+      "session_id": "SCREEN_20261022T185746Z",
+      "role": "holdout_screen2",
+      "nonoverlap": "REAL=0/17 atk=False",
+      "sliding": "REAL=0/81 atk=False",
+      "sliding_introduces_real": false
+    }
+  ],
+  "verdict": {
+    "any_print_or_screen_sliding_window_real": true,
+    "sliding_attack_sessions_hit": [
+      "PRINT_20261021T154852Z"
+    ],
+    "genuine_pooled_real_pct_nonoverlap": 67.56756756756756,
+    "genuine_pooled_real_pct_sliding": 65.0,
+    "frozen_remains_reasonable_research_candidate": true,
+    "frozen_is_offset_sensitive": true,
+    "explanation": "Non-overlapping 5s evaluation still shows 0 PRINT/SCREEN session containment REAL under the frozen rule, so it remains a reasonable offline research candidate for that protocol. Sliding 5s/1s exposes offset sensitivity: provisional PRINT3 yields a short cluster of correlated REAL windows. Do not treat that as independent attacks; do not deploy without a stride-robust rule or confirmed PRINT set."
+  }
+}
